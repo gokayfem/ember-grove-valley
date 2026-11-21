@@ -29,7 +29,7 @@ class Renderer:
     def __init__(self, ctx):
         self.ctx = ctx
         self.passes = {}
-        html = Path(__file__).with_name("index.html").read_text(encoding="utf-8")
+        html = Path(__file__).with_name("renderer.html").read_text(encoding="utf-8")
         for name, shader in re.findall(r'<script type="text/plain" id="([^"]+)">(.*?)</script>', html, re.S):
             print(f"Compiling {name}", flush=True)
             program = ctx.program(vertex_shader=VERTEX, fragment_shader=HEADER + shader +

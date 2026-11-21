@@ -1,10 +1,10 @@
 # Ember Grove
 
-[Render the valley](https://gokayfem.github.io/ember-grove-valley/)
+[View the valley](https://gokayfem.github.io/ember-grove-valley/)
 
-A procedural single-sun valley in five GLSL passes. Select a camera position and click **Render frame** to generate a 1280 × 720 still. The first render builds terrain, trees and shadows. Subsequent renders reuse those tables. Timing depends on your GPU.
+A procedural single-sun valley in five GLSL passes. The hosted page displays lossless 1280 × 720 renders of the three camera presets. Choose **Open live GPU renderer** and click **Render frame** to generate a still on your own GPU. The first render builds terrain, trees and shadows. Subsequent renders reuse those tables. Timing depends on your GPU.
 
-The viewer requires WebGL 2 with filterable, renderable floating-point textures. It generates the landscape without image inputs. Open `index.html` locally or use the hosted page. The complete shader source is in `Valley.glsl`.
+The live renderer requires WebGL 2 with filterable, renderable floating-point textures. It generates the landscape without image inputs. Open `renderer.html` locally or use the hosted renderer. The complete shader source is in `Valley.glsl`.
 
 ## Windows NVIDIA viewer
 
@@ -29,7 +29,7 @@ python render.py frames --camera all
 
 On Windows the script uses desktop OpenGL. On Linux it requests an EGL context for headless rendering. It prints the renderer name on startup so you can confirm which GPU the driver selected. The driver must provide OpenGL 3.3 or newer. Different graphics drivers can round shader operations differently.
 
-The web viewer requests the high-performance GPU and caches each finished preset in GPU memory while the page is open. When browser storage is available it also keeps the exact RGBA8 pixels in IndexedDB for repeat visits. The cache key includes the viewer source, browser version and GPU renderer.
+The live web renderer requests the high-performance GPU and caches each finished preset in GPU memory while the page is open. When browser storage is available it also keeps the exact RGBA8 pixels in IndexedDB for repeat visits. The cache key includes the viewer source, browser version and GPU renderer.
 
 ## RTX 3090 benchmark
 
