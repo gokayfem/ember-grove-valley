@@ -2065,7 +2065,11 @@ void mainImage(out vec4 c,in vec2 px){
  if(iFrame>192){c=texelFetch(iChannel0,ivec2(px),0);return;}
  int X=address%184-30+48,Y=(address/184)%84-5+48,bandGroup=address/(184*84);
  int key=(bandGroup*256+Y)*256+X;int first=firstPatch(key);
- c=vec4(first,firstPatch(key+1)-first,0,0);return;}
+ int end=firstPatch(key+1),column=address%184;
+ // Three consecutive X buckets occupy one contiguous run in the sorted table.
+ int rowFirst=column==0?first:firstPatch(key-1);
+ int rowEnd=column==183?end:firstPatch(key+2);
+ c=vec4(first,end-first,rowFirst,rowEnd-rowFirst);return;}
  if(iFrame>=193&&px.x<1022.&&px.y<413.){c=vec4(renderMirror(px),1.);return;}
  int id=int(px.x)+int(px.y)*int(iResolution.x);
  if(id<524288){c=lightSort(id);return;}
@@ -3264,11 +3268,16 @@ void patchHit(vec2 pos,int idx,inout ForegroundHit best){
  vec3 A=projectPoint(movingSurface(inst,a,tag)),B=projectPoint(movingSurface(inst,b,tag)),C=projectPoint(movingSurface(inst,c,tag)),D=projectPoint(movingSurface(inst,d,tag));
  if(any(lessThan(pos,min(min(A.xy,B.xy),min(C.xy,D.xy))))||any(greaterThan(pos,max(max(A.xy,B.xy),max(C.xy,D.xy)))))continue;
  fgTri(pos,A,B,C,a,b,c,best,idx,inst);fgTri(pos,A,C,D,a,c,d,best,idx,inst);}}
-ivec2 bucketRange(int band,int lvl,ivec2 tile){
- ivec2 xy=tile+ivec2(30,5);if(any(lessThan(xy,ivec2(0)))||any(greaterThanEqual(xy,ivec2(184,84))))return ivec2(0);
+ivec2 bucketRowRange(int band,int lvl,ivec2 tile){
+ ivec2 xy=tile+ivec2(30,5);
+ if(xy.y<0||xy.y>=84||xy.x< -1||xy.x>184)return ivec2(0);
+ // A center just outside the atlas overlaps exactly one edge bucket.
+ bool edge=xy.x<0||xy.x>=184;
+ xy.x=clamp(xy.x,0,183);
  int address=xy.x+184*(xy.y+84*(lvl+5*band));int width=int(iChannelResolution[2].x);
  ivec2 loc=ivec2(address%width,address/width+int(floor(.68*iChannelResolution[2].y)));
- return ivec2(texelFetch(iChannel2,loc,0).xy+.5);}
+ vec4 ranges=texelFetch(iChannel2,loc,0);
+ return ivec2((edge?ranges.xy:ranges.zw)+.5);}
 vec2 designPixel(vec2 pixel,float worldDepth){
     float depth=worldDepth+.09*truck;
     vec2 centered=pixel-vec2(960.+1404.*truck/325.,464.4);
@@ -3284,8 +3293,8 @@ ForegroundHit frontLayer(vec2 pos,float stopZ){
  if(band==5&&(remap.x<370.||remap.x>670.||remap.y<610.||remap.y>980.))continue;
  if(band==6&&remap.y<620.)continue;
  for(int lvl=0;lvl<5;lvl++){float tile=16.*exp2(float(lvl));ivec2 cell=ivec2(floor(remap/tile));
- for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){
- ivec2 range=bucketRange(band,lvl,cell+ivec2(dx,dy));
+ for(int dy=-1;dy<=1;dy++){
+ ivec2 range=bucketRowRange(band,lvl,cell+ivec2(0,dy));
  for(int j=0;j<range.y;j++){vec4 record=texelFetch(iChannel1,patchAddress(range.x+j,int(iChannelResolution[1].x)),0);
  if(record.z*.87>best.z)continue;float bound=tile*.9;
  vec2 delta=abs(remap-record.xy);if(max(delta.x,delta.y)>bound+4.)continue;

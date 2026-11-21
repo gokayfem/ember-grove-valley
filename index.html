@@ -2065,7 +2065,11 @@ void mainImage(out vec4 c,in vec2 px){
  if(iFrame>192){c=texelFetch(iChannel0,ivec2(px),0);return;}
  int X=address%184-30+48,Y=(address/184)%84-5+48,bandGroup=address/(184*84);
  int key=(bandGroup*256+Y)*256+X;int first=firstPatch(key);
- c=vec4(first,firstPatch(key+1)-first,0,0);return;}
+ int end=firstPatch(key+1),column=address%184;
+ // Three consecutive X buckets occupy one contiguous run in the sorted table.
+ int rowFirst=column==0?first:firstPatch(key-1);
+ int rowEnd=column==183?end:firstPatch(key+2);
+ c=vec4(first,end-first,rowFirst,rowEnd-rowFirst);return;}
  if(iFrame>=193&&px.x<1022.&&px.y<413.){c=vec4(renderMirror(px),1.);return;}
  int id=int(px.x)+int(px.y)*int(iResolution.x);
  if(id<524288){c=lightSort(id);return;}
@@ -3263,11 +3267,16 @@ void patchHit(vec2 pos,int idx,inout ForegroundHit best){
  vec3 A=projectPoint(movingSurface(inst,a,tag)),B=projectPoint(movingSurface(inst,b,tag)),C=projectPoint(movingSurface(inst,c,tag)),D=projectPoint(movingSurface(inst,d,tag));
  if(any(lessThan(pos,min(min(A.xy,B.xy),min(C.xy,D.xy))))||any(greaterThan(pos,max(max(A.xy,B.xy),max(C.xy,D.xy)))))continue;
  fgTri(pos,A,B,C,a,b,c,best,idx,inst);fgTri(pos,A,C,D,a,c,d,best,idx,inst);}}
-ivec2 bucketRange(int band,int lvl,ivec2 tile){
- ivec2 xy=tile+ivec2(30,5);if(any(lessThan(xy,ivec2(0)))||any(greaterThanEqual(xy,ivec2(184,84))))return ivec2(0);
+ivec2 bucketRowRange(int band,int lvl,ivec2 tile){
+ ivec2 xy=tile+ivec2(30,5);
+ if(xy.y<0||xy.y>=84||xy.x< -1||xy.x>184)return ivec2(0);
+ // A center just outside the atlas overlaps exactly one edge bucket.
+ bool edge=xy.x<0||xy.x>=184;
+ xy.x=clamp(xy.x,0,183);
  int address=xy.x+184*(xy.y+84*(lvl+5*band));int width=int(iChannelResolution[2].x);
  ivec2 loc=ivec2(address%width,address/width+int(floor(.68*iChannelResolution[2].y)));
- return ivec2(texelFetch(iChannel2,loc,0).xy+.5);}
+ vec4 ranges=texelFetch(iChannel2,loc,0);
+ return ivec2((edge?ranges.xy:ranges.zw)+.5);}
 vec2 designPixel(vec2 pixel,float worldDepth){
     float depth=worldDepth+.09*truck;
     vec2 centered=pixel-vec2(960.+1404.*truck/325.,464.4);
@@ -3283,8 +3292,8 @@ ForegroundHit frontLayer(vec2 pos,float stopZ){
  if(band==5&&(remap.x<370.||remap.x>670.||remap.y<610.||remap.y>980.))continue;
  if(band==6&&remap.y<620.)continue;
  for(int lvl=0;lvl<5;lvl++){float tile=16.*exp2(float(lvl));ivec2 cell=ivec2(floor(remap/tile));
- for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){
- ivec2 range=bucketRange(band,lvl,cell+ivec2(dx,dy));
+ for(int dy=-1;dy<=1;dy++){
+ ivec2 range=bucketRowRange(band,lvl,cell+ivec2(0,dy));
  for(int j=0;j<range.y;j++){vec4 record=texelFetch(iChannel1,patchAddress(range.x+j,int(iChannelResolution[1].x)),0);
  if(record.z*.87>best.z)continue;float bound=tile*.9;
  vec2 delta=abs(remap-record.xy);if(max(delta.x,delta.y)>bound+4.)continue;
@@ -3674,7 +3683,7 @@ void mainImage(out vec4 color,in vec2 pixel){vec2 uv=pixel/iResolution.xy;float 
 </script>
 <script>
 const canvas=document.querySelector('canvas'), statusText=document.querySelector('output');
-const button=document.querySelector('button'), gl=canvas.getContext('webgl2',{alpha:false,antialias:false,preserveDrawingBuffer:true});
+const button=document.querySelector('button'), gl=canvas.getContext('webgl2',{powerPreference:'high-performance',alpha:false,antialias:false,preserveDrawingBuffer:true});
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let scene, lost=false;
 canvas.addEventListener('webglcontextlost',()=>{lost=true;statusText.value='GPU context lost. Reload to retry.';});
@@ -3685,19 +3694,23 @@ async function programs(){
   const vs=shader(gl.VERTEX_SHADER,'#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0,1);}');
   const header='#version 300 es\nprecision highp float;precision highp int;precision highp sampler2D;\n#define noise2 valueNoise2\n#define noise3 valueNoise3\nuniform vec3 iResolution,iChannelResolution[4];uniform float iTime;uniform int iFrame;uniform sampler2D iChannel0,iChannel1,iChannel2,iChannel3;out vec4 col;\n';
   const ext=gl.getExtension('KHR_parallel_shader_compile'), result={};
-  for(const name of ['A','B','C','D','Image']){
-    statusText.value='Compiling '+name;await pause(10);
+  statusText.value='Compiling landscape shaders';await pause(0);
+  const pending=['A','B','C','D','Image'].map(name=>{
     const fs=shader(gl.FRAGMENT_SHADER,header+document.getElementById(name).textContent+'\nvoid main(){mainImage(col,gl_FragCoord.xy);}');
     const p=gl.createProgram();gl.attachShader(p,vs);gl.attachShader(p,fs);gl.linkProgram(p);
+    return {name,p,fs};
+  });
+  for(const {name,p,fs} of pending){
     if(ext)while(!gl.getProgramParameter(p,ext.COMPLETION_STATUS_KHR)){if(lost)throw Error('GPU context lost');await pause(30);}
     if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(name+' '+gl.getShaderInfoLog(fs)+' '+gl.getProgramInfoLog(p));
+    gl.deleteShader(fs);
     const loc=n=>gl.getUniformLocation(p,n);
     result[name]={p,res:loc('iResolution'),frame:loc('iFrame'),time:loc('iTime'),samplers:[0,1,2,3].map(i=>loc('iChannel'+i)),sizes:[0,1,2,3].map(i=>loc('iChannelResolution['+i+']'))};
-  }return result;
+  }gl.deleteShader(vs);return result;
 }
-function target(w=1920,h=1080,mips=false){
+function target(w=1920,h=1080,mips=false,format=gl.RGBA32F){
   const tex=gl.createTexture(), fb=gl.createFramebuffer();gl.bindTexture(gl.TEXTURE_2D,tex);
-  gl.texStorage2D(gl.TEXTURE_2D,mips?1+Math.floor(Math.log2(Math.max(w,h))):1,gl.RGBA32F,w,h);
+  gl.texStorage2D(gl.TEXTURE_2D,mips?1+Math.floor(Math.log2(Math.max(w,h))):1,format,w,h);
   for(const param of [gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER])gl.texParameteri(gl.TEXTURE_2D,param,gl.LINEAR);
   for(const param of [gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T])gl.texParameteri(gl.TEXTURE_2D,param,gl.CLAMP_TO_EDGE);
   gl.bindFramebuffer(gl.FRAMEBUFFER,fb);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex,0);
@@ -3723,11 +3736,11 @@ function bind(pass,t,frame,time,inputs,height=t.h){
     gl.uniform3f(pass.sizes[i],inputs[i]?.w||1,inputs[i]?.h||1,1);}
 }
 const draw=()=>gl.drawArrays(gl.TRIANGLES,0,3);
-async function tiles(w,h,tw,th,label,batch){
+async function tiles(w,h,tw,th,label,batch,offsetY=0){
   gl.enable(gl.SCISSOR_TEST);let n=0;
   for(let y=0;y<h;y+=th)for(let x=0;x<w;x+=tw){
-    gl.scissor(x,y,Math.min(w-x,tw),Math.min(h-y,th));draw();
-    if(++n%batch===0){statusText.value=label+' · '+Math.floor(100*(y*w+x*th)/(w*h))+'%';await drain();}
+    gl.scissor(x,y+offsetY,Math.min(w-x,tw),Math.min(h-y,th));draw();
+    if(++n%batch===0 && (y+th<h || x+tw<w)){statusText.value=label+' · '+Math.floor(100*(y*w+x*th)/(w*h))+'%';await drain();}
   }gl.disable(gl.SCISSOR_TEST);await drain();
 }
 let blank;
@@ -3738,25 +3751,117 @@ async function prepare(){
   const d=target(3584,2016,true);
   for(let f=0;f<3;f++){bind(p.A,tmp,f,0,[a]);await tiles(1920,1080,480,32,'Terrain '+(f+1)+'/3',8);[a,tmp]=[tmp,a];}
   gl.deleteFramebuffer(tmp.fb);gl.deleteTexture(tmp.tex);
-  for(let f=1;f<=191;f++){bind(p.B,b2,f,0,[a,b],1008);
-    if(f===1||f===173)await tiles(1920,1008,960,16,'Building forest',4);
-    else {draw();if(f%8===0){statusText.value='Sorting forest '+f+'/191';await drain();}}
+  // Until frame 173 the canopy and range tables contain only zeros.
+  const sortRows=Math.ceil(1310720/b.w);
+  for(let f=1;f<=191;f++){bind(p.B,b2,f,0,[a,b],f<173?sortRows:1008);
+    if(f===1||f===173)await tiles(b.w,f===1?sortRows:1008,960,16,'Building forest',4);
+    else {
+      // Both ping-pong targets contain the final static tables after frame 174.
+      if(f>=175){
+        const first=Math.floor(524288/b.w),end=Math.ceil(1048576/b.w);
+        gl.enable(gl.SCISSOR_TEST);gl.scissor(0,first,b.w,end-first);
+      }
+      draw();gl.disable(gl.SCISSOR_TEST);
+      if(f%8===0){statusText.value='Sorting forest '+f+'/191';await drain();}}
     [b,b2]=[b2,b];}
   gl.deleteFramebuffer(b2.fb);gl.deleteTexture(b2.tex);
   for(let f=0;f<=192;f++){const sort=f>=1&&f<=190;bind(p.C,c2,f,0,[c,b,a],sort?274:1080);
     if(sort){draw();if(f%8===0){statusText.value='Sorting shadows '+f+'/190';await drain();}}
-    else await tiles(1920,1080,f===192?96:320,f===192?2:8,'Preparing shadows '+f,24);
+    else if(f===192){
+      // Only the packed 512 x 512 depth map needs the expensive shadow query.
+      const first=Math.floor(900000/c.w),end=Math.ceil((900000+262144)/c.w);
+      await tiles(c.w,first,960,16,'Copying shadow tables',32);
+      await tiles(c.w,end-first,96,2,'Tracing shadows',24,first);
+      await tiles(c.w,c.h-end,320,8,'Preparing foreground',24,end);
+    }else{
+      // Frame 0 emits zeros after the sort keys. Frame 191 ends after the ranges.
+      const rows=f===0?Math.ceil(524288/c.w):Math.ceil((524288+349525)/c.w);
+      await tiles(c.w,rows,320,8,'Preparing shadows '+f,24);
+    }
     [c,c2]=[c2,c];}
+  // Keep frame 192 as the immutable source for camera-dependent rectangles.
+  gl.bindFramebuffer(gl.READ_FRAMEBUFFER,c.fb);
+  gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,c2.fb);
+  gl.blitFramebuffer(0,0,c.w,c.h,0,0,c.w,c.h,gl.COLOR_BUFFER_BIT,gl.NEAREST);
   return {p,a,b,c,c2,d};
+}
+// Each preset is deterministic. Store the resolved 8-bit framebuffer exactly.
+const frames=new Map();
+// IndexedDB is optional. Include the shader and viewer source in the cache key
+// so edits invalidate old frames, even when this file is opened locally.
+let cachePromise;
+async function openFrameCache(){
+  if(!window.indexedDB || !window.crypto?.subtle)return null;
+  const info=gl.getExtension('WEBGL_debug_renderer_info');
+  if(!info)return null;
+  const source=[navigator.userAgent,gl.getParameter(info.UNMASKED_RENDERER_WEBGL),
+    ...Array.from(document.scripts,script=>script.textContent)].join('\n');
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(source));
+  const version=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
+  const db=await new Promise((resolve,reject)=>{
+    const req=indexedDB.open('ember-grove-frames',1);
+    req.onupgradeneeded=()=>req.result.createObjectStore('frames');
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+    req.onblocked=()=>resolve(null);
+  });
+  return db && {db,version};
+}
+async function restoreFrame(cache,k){
+  if(!cache)return null;
+  const entry=await new Promise((resolve,reject)=>{
+    const req=cache.db.transaction('frames').objectStore('frames').get(k);
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+  if(entry?.version!==cache.version || entry.pixels?.length!==canvas.width*canvas.height*4)return null;
+  const frame=target(canvas.width,canvas.height,false,gl.RGBA8);
+  gl.bindTexture(gl.TEXTURE_2D,frame.tex);
+  gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,frame.w,frame.h,gl.RGBA,gl.UNSIGNED_BYTE,entry.pixels);
+  return frame;
+}
+function saveFrame(cache,k,frame){
+  if(!cache)return;
+  const pixels=new Uint8Array(frame.w*frame.h*4);
+  gl.bindFramebuffer(gl.READ_FRAMEBUFFER,frame.fb);
+  gl.readPixels(0,0,frame.w,frame.h,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+  try{
+    cache.db.transaction('frames','readwrite').objectStore('frames').put({version:cache.version,pixels},k);
+  }catch{ /* Storage can be unavailable in private browsing. */ }
 }
 button.onclick=async()=>{
   button.disabled=true;const start=performance.now();
-  try{scene??=await prepare();const {p,a,b,d}=scene,k=Number(document.querySelector('select').value);
-    bind(p.C,scene.c2,193+k,k/48,[scene.c,b,a]);await tiles(1920,1080,320,8,'Reflections',8);
-    [scene.c,scene.c2]=[scene.c2,scene.c];mip(scene.c);
-    bind(p.D,d,193+k,k/48,[a,b,scene.c]);await tiles(d.w,d.h,672,12,'Rendering valley',4);mip(d);
-    bind(p.Image,{w:1280,h:720,fb:null},172+k,k/48,[d,scene.c]);draw();await drain();
-    statusText.value='1280 × 720 · '+((performance.now()-start)/1000).toFixed(1)+' s';
+  try{
+    const k=Number(document.querySelector('select').value);
+    if(!gl)throw Error('WebGL 2 is required.');
+    const cache=await (cachePromise??=openFrameCache().catch(()=>null));
+    const cached=frames.get(k) || await restoreFrame(cache,k).catch(()=>null);
+    if(cached){
+      frames.set(k,cached);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER,cached.fb);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,null);
+      gl.blitFramebuffer(0,0,canvas.width,canvas.height,0,0,canvas.width,canvas.height,gl.COLOR_BUFFER_BIT,gl.NEAREST);
+    }else{
+      scene??=await prepare();
+      const {p,a,b,c,c2,d}=scene;
+      bind(p.C,c2,193+k,k/48,[c,b,a]);
+      await tiles(1022,413,320,8,'Reflections',16);
+      // The lens fern follows the patch buckets in the upper atlas.
+      const atlasY=Math.floor(.68*c.h),fernStart=184*84*35;
+      const first=atlasY+Math.floor(fernStart/c.w);
+      const end=atlasY+Math.ceil((fernStart+420*192)/c.w);
+      await tiles(c.w,end-first,320,8,'Foreground fern',16,first);
+      mip(c2);
+      bind(p.D,d,193+k,k/48,[a,b,c2]);await tiles(d.w,d.h,672,12,'Rendering valley',16);mip(d);
+      bind(p.Image,{w:canvas.width,h:canvas.height,fb:null},172+k,k/48,[d,c2]);draw();
+      const frame=target(canvas.width,canvas.height,false,gl.RGBA8);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER,null);
+      gl.blitFramebuffer(0,0,canvas.width,canvas.height,0,0,frame.w,frame.h,gl.COLOR_BUFFER_BIT,gl.NEAREST);
+      await drain();
+      frames.set(k,frame);saveFrame(cache,k,frame);
+    }
+    if(cached)await drain();
+    statusText.value='1280 × 720 · '+((performance.now()-start)/1000).toFixed(2)+' s'+(cached?' · cached':'');
   }catch(error){statusText.value=String(error);}finally{button.disabled=lost;}
 };
 </script>
