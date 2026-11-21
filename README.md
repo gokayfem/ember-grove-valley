@@ -4,7 +4,20 @@
 
 A procedural single-sun valley in five GLSL passes. The hosted page displays lossless 1280 × 720 renders of the three camera presets. Choose **Open live GPU renderer** and click **Render frame** to generate a still on your own GPU. The first render builds terrain, trees and shadows. Subsequent renders reuse those tables. Timing depends on your GPU.
 
-The live renderer requires WebGL 2 with filterable, renderable floating-point textures. It generates the landscape without image inputs. Open `renderer.html` locally or use the hosted renderer. The complete shader source is in `Valley.glsl`.
+The WebGL renderer requires WebGL 2 with filterable, renderable floating-point textures. It generates the landscape without image inputs. Open `renderer.html` locally or use the hosted renderer. The complete shader source is in `Valley.glsl`.
+
+## Hosted live rendering on Windows
+
+When the browser reports a Direct3D 11 WebGL backend, the hosted live renderer selects WebGPU if the adapter supports float32 filtering. The shaders are translated to WGSL during development. The browser compiles the GPU pipelines and runs all five procedural passes with the original float32 tables, supersampling and 720p resolve. The status shows the remaining pipelines and elapsed time. Browser and driver differences can produce small rounding differences in the output.
+
+[Open the WebGPU renderer](https://gokayfem.github.io/ember-grove-valley/webgpu/) · [Open the WebGL renderer](https://gokayfem.github.io/ember-grove-valley/renderer.html?backend=webgl)
+
+After editing a shader in `renderer.html`, rebuild the checked-in WGSL with Node.js 22 or newer from `tools/webgpu`.
+
+```sh
+npm ci
+npm run build
+```
 
 ## Windows NVIDIA viewer
 

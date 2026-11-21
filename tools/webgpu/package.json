@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "scripts": { "build": "node build.cjs" },
+  "devDependencies": { "@webgpu/glslang": "0.0.15", "naga-wasi-cli": "0.1.0" }
+}

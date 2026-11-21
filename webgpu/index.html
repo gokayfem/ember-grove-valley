@@ -1,0 +1,11 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Ember Grove · 720p shader preview</title>
+<style>
+h1{font-size:1.45rem}a{color:#e5bd96}body{padding:0 12px;background:#191b20;color:#e3ded3;font:16px system-ui;margin:24px auto;max-width:1280px}canvas{width:100%;height:auto;background:#111}button,select{font:inherit;padding:.4em}output{margin:0 .7em}
+</style>
+<h1>Ember Grove</h1>
+<canvas aria-label="Procedurally rendered sunrise valley" width="1280" height="720"></canvas>
+<p><select aria-label="Camera position"><option value="0">Start</option><option value="124">Middle</option><option value="247">End</option></select>
+<button>Render frame</button><output role="status">WebGPU · Choose a camera position and render. The first frame builds the scene.</output></p>
+<p><a href="../renderer.html?backend=webgl">Use WebGL renderer</a> · <a href="../">View presets</a> · <a href="../Valley.glsl" download>Download GLSL</a></p>
+<script src="gpu.js"></script>

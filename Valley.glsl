@@ -258,7 +258,20 @@ float rockField(vec3 p){
  return d;
 }
     float sd(vec3 p){return rockField(p);}
+#ifdef EMBER_WEBGPU
+    vec3 gradient(vec3 p,float e){
+      // One distance-field call site keeps the complete rock model small after inlining.
+      vec3 g=vec3(0.);float plus=0.;
+      for(int i=0;i<6;i++){
+        vec3 offset=vec3(0.);offset[i/2]=e;
+        float d=sd(i%2==0?p+offset:p-offset);
+        if(i%2==0)plus=d;else g[i/2]=plus-d;
+      }
+      return g;
+    }
+#else
     vec3 gradient(vec3 p,float e){vec2 h=vec2(e,0);return vec3(sd(p+h.xyy)-sd(p-h.xyy),sd(p+h.yxy)-sd(p-h.yxy),sd(p+h.yyx)-sd(p-h.yyx));}
+#endif
     float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
     float noise3(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
       return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
@@ -1424,7 +1437,20 @@ float rockField(vec3 p){
  return d;
 }
     float sd(vec3 p){return rockField(p);}
+#ifdef EMBER_WEBGPU
+    vec3 gradient(vec3 p,float e){
+      // One distance-field call site keeps the complete rock model small after inlining.
+      vec3 g=vec3(0.);float plus=0.;
+      for(int i=0;i<6;i++){
+        vec3 offset=vec3(0.);offset[i/2]=e;
+        float d=sd(i%2==0?p+offset:p-offset);
+        if(i%2==0)plus=d;else g[i/2]=plus-d;
+      }
+      return g;
+    }
+#else
     vec3 gradient(vec3 p,float e){vec2 h=vec2(e,0);return vec3(sd(p+h.xyy)-sd(p-h.xyy),sd(p+h.yxy)-sd(p-h.yxy),sd(p+h.yyx)-sd(p-h.yyx));}
+#endif
     float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
     float noise3(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
       return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
@@ -2023,9 +2049,19 @@ void shadowPatch(vec2 pos,int id,inout float depth){
     vec2 stepUV=1./vec2(cols,rows);
     for(int y=0;y<span.y;y++)for(int x=0;x<span.x;x++){
         vec2 uv=vec2(cell+ivec2(x,y))*stepUV;
+#ifdef EMBER_WEBGPU
+        vec3 vertex[4];
+        for(int k=0;k<4;k++){
+            vec2 point=k==0?uv:k==1?uv+vec2(stepUV.x,0):k==2?uv+stepUV:uv+vec2(0,stepUV.y);
+            vertex[k]=shadowVertex(inst,point);
+        }
+        shadowTriangle(pos,vertex[0],vertex[1],vertex[2],depth);
+        shadowTriangle(pos,vertex[0],vertex[2],vertex[3],depth);
+#else
         vec3 a=shadowVertex(inst,uv),b=shadowVertex(inst,uv+vec2(stepUV.x,0)),
              c=shadowVertex(inst,uv+stepUV),d=shadowVertex(inst,uv+vec2(0,stepUV.y));
         shadowTriangle(pos,a,b,c,depth);shadowTriangle(pos,a,c,d,depth);
+#endif
     }
 }
 float shadowDepth(vec2 pos){
@@ -2769,7 +2805,20 @@ float rockField(vec3 p){
  return d;
 }
     float sd(vec3 p){return rockField(p);}
+#ifdef EMBER_WEBGPU
+    vec3 gradient(vec3 p,float e){
+      // One distance-field call site keeps the complete rock model small after inlining.
+      vec3 g=vec3(0.);float plus=0.;
+      for(int i=0;i<6;i++){
+        vec3 offset=vec3(0.);offset[i/2]=e;
+        float d=sd(i%2==0?p+offset:p-offset);
+        if(i%2==0)plus=d;else g[i/2]=plus-d;
+      }
+      return g;
+    }
+#else
     vec3 gradient(vec3 p,float e){vec2 h=vec2(e,0);return vec3(sd(p+h.xyy)-sd(p-h.xyy),sd(p+h.yxy)-sd(p-h.yxy),sd(p+h.yyx)-sd(p-h.yyx));}
+#endif
     float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
     float noise3(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
       return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
@@ -3265,7 +3314,16 @@ void patchHit(vec2 pos,int idx,inout ForegroundHit best){
  for(int y=0;y<span.y;y++)for(int x=0;x<span.x;x++){
  vec2 s=1./vec2(cols,rows),a=vec2(cell+ivec2(x,y))*s;
  vec2 b=a+vec2(s.x,0),c=a+s,d=a+vec2(0,s.y);
+#ifdef EMBER_WEBGPU
+ vec3 corner[4];
+ for(int k=0;k<4;k++){
+     vec2 point=k==0?a:k==1?b:k==2?c:d;
+     corner[k]=projectPoint(movingSurface(inst,point,tag));
+ }
+ vec3 A=corner[0],B=corner[1],C=corner[2],D=corner[3];
+#else
  vec3 A=projectPoint(movingSurface(inst,a,tag)),B=projectPoint(movingSurface(inst,b,tag)),C=projectPoint(movingSurface(inst,c,tag)),D=projectPoint(movingSurface(inst,d,tag));
+#endif
  if(any(lessThan(pos,min(min(A.xy,B.xy),min(C.xy,D.xy))))||any(greaterThan(pos,max(max(A.xy,B.xy),max(C.xy,D.xy)))))continue;
  fgTri(pos,A,B,C,a,b,c,best,idx,inst);fgTri(pos,A,C,D,a,c,d,best,idx,inst);}}
 ivec2 bucketRowRange(int band,int lvl,ivec2 tile){
@@ -3588,7 +3646,11 @@ void renderSample(out vec4 color,in vec2 uv){
 // The four visibility queries follow the 4x MSAA pattern of the approved render.
 void mainImage(out vec4 color,in vec2 pixel){
     const vec2 samples[4]=vec2[4](vec2(.375,.125),vec2(.875,.375),vec2(.125,.625),vec2(.625,.875));
+#ifdef EMBER_WEBGPU
+    ivec2 quadrant=ivec2(pixel)&ivec2(1);
+#else
     ivec2 quadrant=ivec2(pixel)%2;
+#endif
     vec2 samplePixel=floor(pixel*.5)+samples[quadrant.x+2*quadrant.y];
     renderSample(color,samplePixel/(iResolution.xy*.5));
     color=floor(clamp(color,0.,1.)*255.+.5)/255.;
